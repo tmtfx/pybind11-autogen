@@ -1,0 +1,55 @@
+diff --git a/main.py b/main.py
+index de78d09..e853e3f 100644
+--- a/main.py
++++ b/main.py
+@@ -37,8 +37,8 @@ def main():
+         bindings_file.parent.mkdir(parents=True, exist_ok=True)
+         with open(bindings_file, 'w') as f:
+             f.write(bindings)
+-        subprocess.run(
+-            ["clang-format", str(bindings_file), "-i", "--style=file"])
++        #subprocess.run(
++        #    ["clang-format", str(bindings_file), "-i", "--style=file"])
+ 
+ 
+ if __name__ == "__main__":
+diff --git a/pybind11_autogen/enum.py b/pybind11_autogen/enum.py
+index a7aefc1..ab190ae 100644
+--- a/pybind11_autogen/enum.py
++++ b/pybind11_autogen/enum.py
+@@ -1,13 +1,19 @@
+ import CppHeaderParser
+ 
+ from pybind11_autogen.doxygen import wrap_doxygen
++from pybind11_autogen.variable import wrap_variable
+ 
+ 
+ def wrap_enum(enum):
+-    code = [
+-        f'py::enum_<{enum["name"]}>(m, "{enum["name"]}", {wrap_doxygen(enum.get("doxygen", ""))})']
+-    for value in enum["values"]:
+-        code.append(
+-            f'.value("{value["name"]}", {enum["name"]}::{value["name"]}, {wrap_doxygen(value.get("doxygen", ""))})')
+-    code.append(".export_values();")
++    try:
++        code = [
++            f'py::enum_<{enum["name"]}>(m, "{enum["name"]}", {wrap_doxygen(enum.get("doxygen", ""))})']
++        for value in enum["values"]:
++            code.append(
++                f'.value("{value["name"]}", {enum["name"]}::{value["name"]}, {wrap_doxygen(value.get("doxygen", ""))})')
++        code.append(".export_values();")
++    except KeyError:
++        code=[]
++        for value in enum["values"]:
++            code.append(wrap_variable(value))
+     return "\n".join(code)
+diff --git a/pybind11_autogen/variable.py b/pybind11_autogen/variable.py
+index ec03a6f..e9ec01a 100644
+--- a/pybind11_autogen/variable.py
++++ b/pybind11_autogen/variable.py
+@@ -4,4 +4,4 @@ from pybind11_autogen.doxygen import wrap_doxygen
+ 
+ 
+ def wrap_variable(variable):
+-    return f'm.attr("{variable["name"]}", {wrap_doxygen(variable.get("doxygen", ""))}) = py::cast({variable["name"]});'
++    return f'm.attr("{variable["name"]}") = py::cast({variable["name"]});' # , {wrap_doxygen(variable.get("doxygen", ""))}

@@ -4,4 +4,4 @@ from pybind11_autogen.doxygen import wrap_doxygen
 
 
 def wrap_variable(variable):
-    return f'm.attr("{variable["name"]}", {wrap_doxygen(variable.get("doxygen", ""))}) = py::cast({variable["name"]});'
+    return f'm.attr("{variable["name"]}") = py::cast({variable["name"]});' # , {wrap_doxygen(variable.get("doxygen", ""))}

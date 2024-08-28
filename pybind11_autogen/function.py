@@ -38,7 +38,6 @@ cpp_to_python_magic = {
     # "operator–": "__neg__",
     # "operator+": "__pos__",
     "operator~": "__invert__",
-    "operator()": "__call__",
     "operator[]": "__getitem__",
     "size": "__len__",
 }
@@ -51,13 +50,11 @@ def fix_scientific_notation(s):
 
 
 def wrap_parameter_default(param):
-    if "default" in param and ":" in param["default"]:
-        param["default"] = re.sub(r"\s*:\s*", ":", param["default"])
     return f'={fix_scientific_notation(param["default"])}' if "default" in param else ""
 
 
 def wrap_parameters(params: list[CppHeaderParser.CppHeaderParser.CppVariable]):
-    return ", ".join(f'py::arg("{param["name"].lstrip("_")}"){wrap_parameter_default(param)}' for param in params)
+    return ", ".join(f'py::arg("{param["name"]}"){wrap_parameter_default(param)}' for param in params)
 
 
 def is_out_param(param):
@@ -78,20 +75,22 @@ def find_overloaded_functions(functions):
     return overloaded
 
 
-def generate_lambda_function(func, self=None):
+def generate_lamba_function(func, self=None):
     in_params = [param for param in func["parameters"]
                  if not is_out_param(param)]
     out_params = [param for param in func["parameters"] if is_out_param(param)]
     args = ", ".join(param["name"] for param in func["parameters"])
 
+    def default(param):
+        return f'={param["default"]}' if "default" in param else ""
+
     lambda_params = ",".join(
-        ([f"{'const ' if func['const'] else ''}{self}& self"] if self else [])
+        ([f"{self}& self"] if self else [])
         + [f'{p["type"]} {p["name"]}{wrap_parameter_default(p)}' for p in in_params])
     return_param_decls = "\n".join(
         f'{p["type"][:-1]} {p["name"]};' for p in out_params)
 
-    func["rtnType"] = func["rtnType"].replace("[ [ noreturn ] ]", "").strip()
-    if func["rtnType"] not in ["static void", "void"]:
+    if func["rtnType"] != "void":
         return_decl = f"{func['rtnType']} r = "
         out_params.insert(0, {"name": "r", "type": func['rtnType']})
     else:
@@ -104,10 +103,7 @@ def generate_lambda_function(func, self=None):
     else:
         return_statement = f"return std::make_tuple({','.join(p['name'] for p in out_params)});"
 
-    if func["static"]:
-        caller = f"{func['parent']['name']}::"
-    else:
-        caller = "self." if self else ""
+    caller = "self." if self else ""
 
     return f"""\
 []({lambda_params}) {{
@@ -121,14 +117,12 @@ def generate_lambda_function(func, self=None):
 def wrap_function(func, prefix="", indent="", overloaded=False, self=None, name=None):
     has_params = (any([not is_out_param(p) for p in func["parameters"]])
                   and not re.match("^function<.*", func["name"]))
-    docstring = wrap_doxygen(func.get("doxygen", ""), indent=indent, suffix="")
+    docstring = wrap_doxygen(
+        func.get("doxygen", ""), indent=indent, suffix=(", " if has_params else ""))
 
-    if re.match("^(function|)<.*", func["name"]):
+    if re.match("^function<.*", func["name"]):
         name = func["debug"].split(">")[1].strip().split()[0]
-        args = [f'"{name}"', f"&{prefix}{name}"]
-        if docstring != '""':
-            args.append(docstring)
-        return f".def_readwrite({', '.join(args)})"
+        return f".def_readwrite(\"{name}\", &{prefix}{name}, {docstring})"
 
     params = wrap_parameters(
         [p for p in func["parameters"] if not is_out_param(p)])
@@ -136,33 +130,21 @@ def wrap_function(func, prefix="", indent="", overloaded=False, self=None, name=
                             for p in func["parameters"] if not is_out_param(p)])
 
     if func["constructor"]:
-        args = [f'py::init<{param_types}>()' if param_types else "py::init()"]
-        if docstring != '""':
-            args.append(docstring)
-        if has_params:
-            args.append(params)
-        return f".def({', '.join(args)})"
+        if param_types:
+            return f".def(py::init<{param_types}>(), {docstring}{params})"
+        return f".def(py::init(), {docstring}{params})"
 
     if has_output_parameters(func["parameters"]):
-        func_address = generate_lambda_function(
-            func, None if func["static"] else self)
+        func_address = generate_lamba_function(func, self)
     else:
         func_address = f'&{prefix}{func["name"]}'
         if overloaded:
-            func_address = f"py::overload_cast<{param_types}>({func_address}{', py::const_' if func['const'] else ''})"
+            func_address = f"py::overload_cast<{param_types}>({func_address})"
 
     if name is None:
         name = func["name"]
 
-    args = [f'"{name}"', func_address]
-    if "&" in func["rtnType"]:
-        args.append("py::return_value_policy::reference")
-    if docstring != '""':
-        args.append(docstring)
-    if has_params:
-        args.append(params)
-
-    return f'.def{"_static" if func["static"] else ""}({", ".join(args)})'
+    return f'.def{"_static" if func["static"] else ""}("{name}", {func_address}, {docstring}{params})'
 
 
 def wrap_functions(functions, prefix="", indent="", self=None):
